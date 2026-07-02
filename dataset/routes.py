@@ -20,12 +20,13 @@ import base64
 import binascii
 import os
 from datetime import datetime, timezone
+from functools import wraps
 
 from flask import Blueprint, Response, current_app, g, jsonify, request
 
 from vbwd.events.bus import event_bus
 from vbwd.extensions import db
-from vbwd.middleware.api_key_auth import require_api_key
+from vbwd.middleware.api_key_auth import API_KEY_HEADER, require_api_key
 from vbwd.middleware.auth import require_admin, require_auth, require_permission
 from vbwd.models.enums import TokenTransactionType
 from vbwd.webhooks.signing import (
@@ -82,6 +83,36 @@ DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE = 300
 WEBHOOK_SOURCES = ("pipeline", "aws")
 
 dataset_bp = Blueprint("dataset", __name__)
+
+
+def _require_session_or_api_key(scope: str):
+    """Accept EITHER a session JWT OR a scoped ``X-API-Key`` on a route.
+
+    The dashboard UI calls with a session token; a programmatic client calls
+    with a scoped API key. At request time this dispatches to the core API-key
+    guard when the ``X-API-Key`` header is present (reusing the middleware's
+    verify + scope + IP machinery — never reimplementing verification) and to
+    ``require_auth`` otherwise. Both paths set ``g.user_id`` so the entitlement
+    check that follows is auth-mechanism-agnostic (Liskov parity).
+    """
+
+    def decorator(view_func):
+        api_key_guarded = require_api_key(scope=scope)(view_func)
+        session_guarded = require_auth(view_func)
+
+        @wraps(view_func)
+        def dispatch(*args, **kwargs):
+            if request.headers.get(API_KEY_HEADER):
+                return api_key_guarded(*args, **kwargs)
+            return session_guarded(*args, **kwargs)
+
+        # Surface the route as authenticated to the route-exposure oracle (S90);
+        # the guarded wrappers live off the dispatch chain so the marker is set
+        # here explicitly, mirroring the core api-key decorator.
+        dispatch.requires_auth = True  # type: ignore[attr-defined]
+        return dispatch
+
+    return decorator
 
 
 def _dataset_service() -> DatasetService:
@@ -686,6 +717,66 @@ def download_dataset_data(slug):
     )
 
 
+@dataset_bp.route("/api/v1/dataset/<slug>/snapshots", methods=["GET"])
+@_require_session_or_api_key(scope=DATASET_READ_SCOPE)
+def list_dataset_snapshots(slug):
+    """List a dataset's archived snapshot versions (newest first).
+
+    Dual auth (session JWT or scoped API key) + entitlement-gated. Returns the
+    public per-version fields only — never the raw storage ``location`` — and
+    flags the dataset's current ``last`` snapshot with ``is_last``.
+    """
+    service = _dataset_service()
+    dataset = _resolve_dataset_or_none(service, slug)
+    if dataset is None:
+        return jsonify({"error": "Not found"}), 404
+    if not _user_is_entitled(g.user_id, dataset):
+        return jsonify({"error": "Not entitled to this dataset"}), 403
+
+    snapshots = service.list_snapshots(str(dataset.id))
+    return jsonify(
+        {
+            "snapshots": [
+                _snapshot_version_dict(snapshot, dataset.last_snapshot_id)
+                for snapshot in snapshots
+            ],
+            "total": len(snapshots),
+        }
+    )
+
+
+@dataset_bp.route(
+    "/api/v1/dataset/<slug>/snapshots/<snapshot_id>/download", methods=["GET"]
+)
+@_require_session_or_api_key(scope=DATASET_READ_SCOPE)
+def download_dataset_snapshot(slug, snapshot_id):
+    """Download one specific archived snapshot version as an attachment.
+
+    Dual auth (session JWT or scoped API key) + entitlement-gated, not metered
+    (mirrors ``/download``). 404 when the snapshot is unknown or belongs to a
+    different dataset (never serves another dataset's bytes).
+    """
+    service = _dataset_service()
+    dataset = _resolve_dataset_or_none(service, slug)
+    if dataset is None:
+        return jsonify({"error": "Not found"}), 404
+    if not _user_is_entitled(g.user_id, dataset):
+        return jsonify({"error": "Not entitled to this dataset"}), 403
+
+    try:
+        snapshot = service.get_snapshot(str(dataset.id), snapshot_id)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    backend, error_response = _resolve_backend_or_error(snapshot)
+    if error_response is not None:
+        return error_response
+
+    return _stream_snapshot(
+        snapshot, backend, as_attachment=True, download_slug=dataset.slug
+    )
+
+
 @dataset_bp.route("/api/v1/dataset/<slug>/preview", methods=["GET"])
 @require_auth
 def preview_dataset(slug):
@@ -846,6 +937,23 @@ def _meter_api_call(endpoint_key: str) -> bool:
     except ValueError:
         return False
     return True
+
+
+def _snapshot_version_dict(snapshot, last_snapshot_id) -> dict:
+    """The entitled-user view of one snapshot version (no raw ``location``).
+
+    Exposes the archive metadata a caller needs to pick a version and flags the
+    dataset's current ``last`` snapshot with ``is_last``.
+    """
+    return {
+        "id": str(snapshot.id),
+        "taken_at": snapshot.taken_at,
+        "size_bytes": snapshot.size_bytes,
+        "ext": snapshot.ext,
+        "checksum": snapshot.checksum,
+        "storage_backend": snapshot.storage_backend,
+        "is_last": bool(last_snapshot_id) and str(snapshot.id) == str(last_snapshot_id),
+    }
 
 
 def _stream_snapshot(
