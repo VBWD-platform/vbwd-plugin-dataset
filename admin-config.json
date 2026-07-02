@@ -1,0 +1,84 @@
+{
+  "tabs": [
+    {
+      "id": "general",
+      "label": "General",
+      "fields": [
+        {
+          "key": "debug_mode",
+          "label": "Debug mode",
+          "component": "checkbox",
+          "description": "Enable verbose dataset plugin logging (development only)."
+        },
+        {
+          "key": "grace_period_fallback_days",
+          "label": "Grace period (days)",
+          "component": "input",
+          "inputType": "number",
+          "min": 0,
+          "max": 90,
+          "description": "Days after subscription cancellation before dataset access is revoked when a plan does not specify its own."
+        }
+      ]
+    },
+    {
+      "id": "access",
+      "label": "Access",
+      "fields": [
+        {
+          "key": "dataset_access_plan_ids",
+          "label": "Access plan IDs",
+          "component": "textarea",
+          "description": "Tariff plan IDs (one per line / JSON array) whose active subscription grants dataset access. Copied from the ghrm plan-grants-access pattern; the per-dataset plan link is set on the dataset editor."
+        }
+      ]
+    },
+    {
+      "id": "api",
+      "label": "API metering",
+      "fields": [
+        {
+          "key": "api_included_allowance",
+          "label": "Included API calls",
+          "component": "input",
+          "inputType": "number",
+          "min": 0,
+          "description": "Included metered read calls per period before overage (post-paid overage lands in S111)."
+        }
+      ]
+    },
+    {
+      "id": "aws",
+      "label": "AWS S3 backend (optional)",
+      "fields": [
+        {
+          "key": "aws.enabled",
+          "label": "Enable AWS S3 backend",
+          "component": "checkbox",
+          "description": "Off by default. When enabled, snapshots may be stored in S3 behind the same storage port. Credentials live in var/secrets, never the image."
+        },
+        {
+          "key": "aws.bucket",
+          "label": "S3 bucket",
+          "component": "input",
+          "inputType": "text",
+          "description": "Target S3 bucket for dataset archives."
+        },
+        {
+          "key": "aws.prefix",
+          "label": "S3 key prefix",
+          "component": "input",
+          "inputType": "text",
+          "description": "Key prefix under the bucket, e.g. datasets."
+        },
+        {
+          "key": "aws.region",
+          "label": "AWS region",
+          "component": "input",
+          "inputType": "text",
+          "description": "AWS region of the bucket."
+        }
+      ]
+    }
+  ]
+}

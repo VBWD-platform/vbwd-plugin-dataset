@@ -1,0 +1,22 @@
+{
+  "debug_mode": false,
+  "dataset_access_plan_ids": [],
+  "grace_period_fallback_days": 7,
+  "api_included_allowance": 1000,
+  "api_endpoint_weights": {
+    "data": 1,
+    "preview": 0,
+    "meta": 0
+  },
+  "aws": {
+    "enabled": false,
+    "bucket": "",
+    "prefix": "datasets",
+    "region": ""
+  },
+  "webhook_secrets": {
+    "pipeline": "",
+    "aws": ""
+  },
+  "webhook_timestamp_tolerance_seconds": 300
+}
