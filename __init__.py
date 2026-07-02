@@ -61,6 +61,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
 DATASET_ENTITY_TYPE = "dataset"
 DATASET_CATEGORY_TERM_TYPE = "dataset_category"
 
+# The API-key scope the scoped read API enforces (single source of truth;
+# routes.py imports this). Declared as a user-grantable ``api_scope`` below so
+# it shows up in the Manage-API-keys UI.
+DATASET_READ_SCOPE = "dataset:read"
+
 # The subscription lifecycle events the access service reacts to (copied from
 # ghrm's set — but through the core EventBus, with no ghrm dependency).
 SUBSCRIPTION_ACTIVATED = "subscription.activated"
@@ -255,11 +260,30 @@ class DatasetPlugin(BasePlugin):
                 "label": "Manage datasets",
                 "group": "Datasets",
             },
+        ]
+
+    @property
+    def api_scopes(self) -> List[Dict[str, Any]]:
+        """The API-key scope the scoped dataset read API enforces (read by core S52).
+
+        The endpoints guard on the ``dataset:read`` **scope** (see
+        ``DATASET_READ_SCOPE`` in ``routes.py``) — NOT on a user permission.
+        ``user_grantable`` lets an entitled user self-mint a ``dataset:read`` key
+        at ``/dashboard/api-keys``; without this declaration the scope never
+        appears in the key-creation UI, so the access page can never find a key
+        carrying it. Granting the scope is harmless on its own — every scoped
+        endpoint additionally checks the caller's dataset entitlement.
+        """
+        return [
             {
-                "key": "dataset.api",
-                "label": "Dataset API access",
-                "group": "Datasets",
-            },
+                "key": DATASET_READ_SCOPE,
+                "label": "Dataset read (API)",
+                "description": (
+                    "Read a purchased dataset's data and archived snapshots "
+                    "through the scoped dataset API."
+                ),
+                "user_grantable": True,
+            }
         ]
 
     def on_enable(self) -> None:

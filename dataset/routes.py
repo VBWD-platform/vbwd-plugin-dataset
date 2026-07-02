@@ -67,8 +67,10 @@ PERMISSION_VIEW = "dataset.view"
 PERMISSION_MANAGE = "dataset.manage"
 
 # The API-key scope the metered read endpoint demands. Core never interprets it;
-# it only string-matches the key's allow-list.
-DATASET_READ_SCOPE = "dataset:read"
+# it only string-matches the key's allow-list. Single source of truth lives in
+# the plugin package (declared as a user-grantable api_scope there); import it so
+# the endpoints and the scope catalogue can never drift.
+from plugins.dataset import DATASET_READ_SCOPE  # noqa: E402
 
 MAX_PER_PAGE = 100
 DEFAULT_PER_PAGE = 20
