@@ -89,6 +89,17 @@ class Dataset(BaseModel):
 
     is_active = db.Column(db.Boolean, nullable=False, default=True)
 
+    # Vendor-mode (marketplace): the owning vendor's ``vbwd_user`` id. ``NULL``
+    # is a platform-owned dataset. Indexed for the vendor's "my datasets" filter;
+    # ``ON DELETE SET NULL`` so removing a user reverts their datasets to the
+    # platform rather than deleting the catalogue rows. Mirrors shop's product.
+    vendor_id = db.Column(
+        db.UUID,
+        db.ForeignKey("vbwd_user.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
     # Assigned core taxes (M2M). When present these drive the ``Priceable``
     # tax breakdown.
     taxes = db.relationship(
@@ -149,6 +160,7 @@ class Dataset(BaseModel):
                 str(self.last_snapshot_id) if self.last_snapshot_id else None
             ),
             "is_active": self.is_active,
+            "vendor_id": str(self.vendor_id) if self.vendor_id else None,
             "tax_ids": [tax["id"] for tax in taxes],
             "taxes": taxes,
             "created_at": self.created_at.isoformat() if self.created_at else None,

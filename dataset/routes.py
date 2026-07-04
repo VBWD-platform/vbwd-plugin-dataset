@@ -27,7 +27,12 @@ from flask import Blueprint, Response, current_app, g, jsonify, request
 from vbwd.events.bus import event_bus
 from vbwd.extensions import db
 from vbwd.middleware.api_key_auth import API_KEY_HEADER, require_api_key
-from vbwd.middleware.auth import require_admin, require_auth, require_permission
+from vbwd.middleware.auth import (
+    require_admin,
+    require_auth,
+    require_permission,
+    require_user_permission,
+)
 from vbwd.models.enums import TokenTransactionType
 from vbwd.webhooks.signing import (
     SIGNATURE_HEADER,
@@ -59,6 +64,7 @@ from plugins.dataset.dataset.services.dataset_taxonomy_service import (
 )
 from plugins.dataset.dataset.services.storage.backend import DatasetStorageError
 from plugins.dataset.dataset.services.storage.local_backend import LocalArchiveBackend
+from plugins.dataset.dataset.services.plugin_config import marketplace_enabled
 from plugins.dataset.dataset.services.storage.resolver import (
     DatasetStorageBackendResolver,
 )
@@ -653,6 +659,133 @@ def create_dataset_order():
         ),
         201,
     )
+
+
+# ======================================================================
+# Vendor: Self-service (marketplace vendor-mode) — S113 parity with shop
+# ======================================================================
+#
+# Gated behind the ``marketplace_enabled`` config flag AND the user-facing
+# ``marketplace.vendor`` permission. A vendor owns the datasets they create
+# (``vendor_id`` = their user id) and may only edit their own. When vendor-mode
+# is off these routes return 403 (classic single-owner catalogue). The
+# permission is the central marketplace plugin's convention; dataset never
+# imports marketplace.
+
+
+def _require_marketplace_enabled():
+    """Return a 403 response tuple when vendor-mode is off, else ``None``."""
+    if not marketplace_enabled():
+        return jsonify({"error": "Vendor mode is not enabled"}), 403
+    return None
+
+
+def _load_owned_dataset(dataset_id):
+    """Load a dataset and enforce vendor ownership (``vendor_id == g.user_id``).
+
+    The single home for the vendor dataset-scoped guard — returns
+    ``(dataset, None)`` or ``(None, error_tuple)`` (404 when missing, 403 when
+    owned by another vendor).
+    """
+    dataset = DatasetRepository(db.session).find_by_id(dataset_id)
+    if not dataset:
+        return None, (jsonify({"error": "Dataset not found"}), 404)
+    if str(dataset.vendor_id) != str(g.user_id):
+        return None, (jsonify({"error": "You do not own this dataset"}), 403)
+    return dataset, None
+
+
+@dataset_bp.route("/api/v1/dataset/vendor/datasets", methods=["POST"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_create_dataset():
+    """Vendor self-service: create a dataset the calling vendor owns."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    body = request.json or {}
+    required = ("slug", "title")
+    missing = [field for field in required if not body.get(field)]
+    if missing:
+        return jsonify({"error": f"Missing fields: {', '.join(missing)}"}), 400
+
+    service = _dataset_service()
+    if service.slug_exists(body["slug"]):
+        return jsonify({"error": "Slug already exists"}), 409
+
+    dataset = service.create_dataset(body)
+    # Stamp ownership explicitly — ``vendor_id`` is NOT a writable field, so a
+    # buyer/admin can never set it via payload (mirrors shop).
+    dataset.vendor_id = g.user_id
+    db.session.commit()
+    return jsonify({"dataset": dataset.to_dict()}), 201
+
+
+@dataset_bp.route("/api/v1/dataset/vendor/datasets", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_list_datasets():
+    """Vendor self-service: list ONLY the calling vendor's own datasets."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    datasets = DatasetRepository(db.session).find_by_vendor_id(g.user_id)
+    return jsonify({"datasets": [dataset.to_dict() for dataset in datasets]}), 200
+
+
+@dataset_bp.route("/api/v1/dataset/vendor/datasets/<dataset_id>", methods=["GET"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_get_dataset(dataset_id):
+    """Vendor self-service: read a dataset the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    dataset, error = _load_owned_dataset(dataset_id)
+    if error:
+        return error
+    return jsonify({"dataset": dataset.to_dict()}), 200
+
+
+@dataset_bp.route("/api/v1/dataset/vendor/datasets/<dataset_id>", methods=["PUT"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_update_dataset(dataset_id):
+    """Vendor self-service: edit a dataset the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    dataset, error = _load_owned_dataset(dataset_id)
+    if error:
+        return error
+
+    body = request.json or {}
+    service = _dataset_service()
+    dataset = service.update_dataset(dataset.id, body)
+    db.session.commit()
+    return jsonify({"dataset": dataset.to_dict()}), 200
+
+
+@dataset_bp.route("/api/v1/dataset/vendor/datasets/<dataset_id>", methods=["DELETE"])
+@require_auth
+@require_user_permission("marketplace.vendor")
+def vendor_delete_dataset(dataset_id):
+    """Vendor self-service: delete a dataset the calling vendor owns (else 403)."""
+    disabled = _require_marketplace_enabled()
+    if disabled:
+        return disabled
+
+    dataset, error = _load_owned_dataset(dataset_id)
+    if error:
+        return error
+
+    _dataset_service().delete_dataset(dataset.id)
+    db.session.commit()
+    return jsonify({"success": True}), 200
 
 
 # ======================================================================

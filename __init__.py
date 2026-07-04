@@ -21,6 +21,10 @@ if TYPE_CHECKING:
 # on-disk ``config.json`` over it.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "debug_mode": False,
+    # Vendor-mode (marketplace): when on, users holding ``marketplace.vendor``
+    # own the datasets they create and the selling vendor is stamped onto the
+    # buyer invoice line at checkout. Off = classic single-owner catalogue.
+    "marketplace_enabled": False,
     # Which tariff plan ids grant dataset access (copied from ghrm's
     # plan-grants-access pattern; the per-DatasetPlan link arrives in T7).
     "dataset_access_plan_ids": [],
@@ -330,6 +334,30 @@ class DatasetPlugin(BasePlugin):
             )
 
         self._register_data_exchangers()
+        self._register_marketplace_listings()
+
+    def _register_marketplace_listings(self) -> None:
+        """Contribute this vendor's datasets to the marketplace listings registry.
+
+        The soft import lives HERE (the plugin wiring root, not dataset source)
+        so dataset's source stays marketplace-free (test_vendor_mode_contract)
+        AND the per-plugin isolated CI (dataset without marketplace) still
+        enables cleanly (Liskov: the absent-peer path never breaks enable).
+        """
+        try:
+            from plugins.marketplace.marketplace.services import (
+                vendor_listings_registry as marketplace_listings_registry,
+            )
+        except ImportError:
+            return
+        from plugins.dataset.dataset.marketplace_listings import (
+            DATASET_LISTING_TYPE_ID,
+            vendor_listings_provider,
+        )
+
+        marketplace_listings_registry.register_vendor_listings_provider(
+            DATASET_LISTING_TYPE_ID, vendor_listings_provider
+        )
 
     def _register_data_exchangers(self) -> None:
         """Register the dataset entity exchanger into the shared data-exchange seam.
@@ -419,7 +447,23 @@ class DatasetPlugin(BasePlugin):
         bus.subscribe(INVOICE_PAID, one_time_handler.on_invoice_paid)
 
     def on_disable(self) -> None:
-        """Reverse the entity-type registration (a no-op if absent)."""
+        """Reverse the entity-type + marketplace registrations (no-op if absent)."""
         from vbwd.services.entity_type_registry import unregister_entity_type
 
         unregister_entity_type(DATASET_ENTITY_TYPE)
+
+        # Mirror of the on_enable registration — guarded soft import so the
+        # source stays marketplace-free and disable is safe when absent.
+        try:
+            from plugins.marketplace.marketplace.services import (
+                vendor_listings_registry as marketplace_listings_registry,
+            )
+        except ImportError:
+            return
+        from plugins.dataset.dataset.marketplace_listings import (
+            DATASET_LISTING_TYPE_ID,
+        )
+
+        marketplace_listings_registry.unregister_vendor_listings_provider(
+            DATASET_LISTING_TYPE_ID
+        )

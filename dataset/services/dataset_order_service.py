@@ -24,6 +24,9 @@ from vbwd.models.invoice import UserInvoice
 from vbwd.models.invoice_line_item import InvoiceLineItem
 from vbwd.pricing.line_tax_fields import line_tax_fields
 
+from plugins.dataset.dataset.constants import VENDOR_ID_KEY
+from plugins.dataset.dataset.services.plugin_config import marketplace_enabled
+
 # The invoice's free-form ``payment_metadata`` namespace the one-time handler
 # reads. Kept in lockstep with ``one_time_payment_handler.METADATA_NAMESPACE``.
 METADATA_NAMESPACE = "dataset"
@@ -96,6 +99,13 @@ class DatasetOrderService:
             "dataset_title": dataset.title,
             "price_breakdown": breakdown,
         }
+        # Vendor-mode (marketplace): stamp the selling vendor's user id onto the
+        # buyer invoice line so the central marketplace plugin credits the vendor
+        # on ``invoice.paid``. Merged (never clobbers other keys), only for
+        # vendor-owned datasets, only when vendor-mode is enabled — dataset stamps
+        # a LOCAL literal and never imports marketplace.
+        if marketplace_enabled() and dataset.vendor_id is not None:
+            line_item.extra_data[VENDOR_ID_KEY] = str(dataset.vendor_id)
         line_item.net_amount = tax_fields["net_amount"]
         line_item.tax_amount = tax_fields["tax_amount"]
         line_item.tax_breakdown = tax_fields["tax_breakdown"]

@@ -38,6 +38,20 @@ class DatasetRepository:
     def find_by_slug(self, slug: str) -> Optional[Dataset]:
         return self.session.query(Dataset).filter(Dataset.slug == slug).first()
 
+    def find_by_vendor_id(self, vendor_id) -> List[Dataset]:
+        """Return the datasets owned by ``vendor_id`` (marketplace vendor-mode).
+
+        Ordered by title so the vendor's "my datasets" list is deterministic.
+        Filtering in SQL (not Python) so a vendor never loads the whole catalogue
+        to see their own rows.
+        """
+        return (
+            self.session.query(Dataset)
+            .filter(Dataset.vendor_id == vendor_id)
+            .order_by(Dataset.title)
+            .all()
+        )
+
     def find_all(
         self,
         page: int = 1,

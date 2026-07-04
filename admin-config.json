@@ -22,6 +22,18 @@
       ]
     },
     {
+      "id": "marketplace",
+      "label": "Marketplace",
+      "fields": [
+        {
+          "key": "marketplace_enabled",
+          "label": "Enable Vendor Mode",
+          "component": "checkbox",
+          "description": "Let vendors (marketplace.vendor) own datasets and stamp the selling vendor on checkout invoices."
+        }
+      ]
+    },
+    {
       "id": "access",
       "label": "Access",
       "fields": [
