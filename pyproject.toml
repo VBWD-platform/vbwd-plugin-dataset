@@ -27,8 +27,6 @@ packages = [
     "plugins.dataset.dataset.services",
     "plugins.dataset.dataset.services.data_exchange",
     "plugins.dataset.dataset.services.storage",
-    "plugins.dataset.migrations",
-    "plugins.dataset.migrations.versions",
 ]
 
 [tool.setuptools.package-data]
