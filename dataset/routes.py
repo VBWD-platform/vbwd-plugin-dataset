@@ -57,7 +57,7 @@ from plugins.dataset.dataset.services.dataset_service import (
     DatasetSnapshotNotFoundError,
     DEFAULT_CATEGORY_SLUG,
 )
-from plugins.dataset.dataset.services.dataset_preview import build_preview
+from plugins.dataset.dataset.services.dataset_preview import build_page, build_preview
 from plugins.dataset.dataset.services.dataset_taxonomy_service import (
     DatasetTaxonomyService,
     InvalidCategoryTermError,
@@ -83,6 +83,9 @@ DEFAULT_PER_PAGE = 20
 
 # Server-side preview cap — never serve more than this many rows (T8).
 PREVIEW_MAX_ROWS = 100
+
+# Hard ceiling on a single paginated rows page (never stream more per request).
+PAGE_MAX_ROWS = 500
 
 # The default number of tokens a stale/replayed webhook window spans (seconds).
 DEFAULT_WEBHOOK_TIMESTAMP_TOLERANCE = 300
@@ -395,6 +398,105 @@ def admin_download_snapshot(dataset_id, snapshot_id):
     return _stream_snapshot(
         snapshot, backend, as_attachment=True, download_slug=dataset.slug
     )
+
+
+@dataset_bp.route("/api/v1/admin/datasets/<dataset_id>/preview", methods=["GET"])
+@require_auth
+@require_admin
+@require_permission(PERMISSION_VIEW)
+def admin_preview_dataset(dataset_id):
+    """Admin spreadsheet preview of a dataset's data (NOT entitlement-gated).
+
+    Returns ``{"columns", "rows"}`` (the shared capped builder) for the resolved
+    snapshot: the explicit ``?snapshot_id=`` when given, otherwise the dataset's
+    ``last`` snapshot. A dataset with no snapshots answers ``200`` with an empty
+    preview so the UI can render an empty state plus the upload control rather
+    than surfacing an error. Unknown dataset → 404; unknown snapshot → 404; an
+    AWS snapshot while AWS is off → the shared graceful 503.
+    """
+    service = _dataset_service()
+    snapshot_id = request.args.get("snapshot_id")
+    try:
+        dataset = service.get_dataset(dataset_id)
+        if snapshot_id:
+            snapshot = service.get_snapshot(dataset_id, snapshot_id)
+        else:
+            snapshot = service.resolve_snapshot(dataset)
+    except DatasetNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    if snapshot is None:
+        return jsonify({"columns": [], "rows": []})
+
+    backend, error_response = _resolve_backend_or_error(snapshot)
+    if error_response is not None:
+        return error_response
+
+    preview = build_preview(
+        backend.open_stream(snapshot.location), max_rows=PREVIEW_MAX_ROWS
+    )
+    return jsonify(preview)
+
+
+def _clamp_int(raw_value, default: int, minimum: int, maximum: int) -> int:
+    """Parse ``raw_value`` to an int and clamp it to ``[minimum, maximum]``.
+
+    A missing/garbage query value falls back to ``default`` — the paginated rows
+    endpoint must never crash on a hand-typed offset/limit.
+    """
+    try:
+        parsed = int(raw_value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+@dataset_bp.route(
+    "/api/v1/admin/datasets/<dataset_id>/snapshots/<snapshot_id>/rows",
+    methods=["GET"],
+)
+@require_auth
+@require_admin
+@require_permission(PERMISSION_VIEW)
+def admin_snapshot_rows(dataset_id, snapshot_id):
+    """One server-paginated page of a snapshot's data (NOT entitlement-gated).
+
+    Returns ``{"columns", "rows", "offset", "limit", "has_more"}`` for the
+    ``offset``/``limit`` window, streaming only that window plus a peek line so a
+    *tremendous* file is never fully loaded (no full row count is computed).
+    ``limit`` is clamped to :data:`PAGE_MAX_ROWS`; a bad offset/limit falls back
+    defensively. Unknown dataset/snapshot → 404; an AWS snapshot while AWS is off
+    → the shared graceful 503.
+    """
+    service = _dataset_service()
+    try:
+        service.get_dataset(dataset_id)
+        snapshot = service.get_snapshot(dataset_id, snapshot_id)
+    except DatasetNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    offset = _clamp_int(
+        request.args.get("offset"), default=0, minimum=0, maximum=2**63 - 1
+    )
+    limit = _clamp_int(
+        request.args.get("limit"),
+        default=PREVIEW_MAX_ROWS,
+        minimum=0,
+        maximum=PAGE_MAX_ROWS,
+    )
+
+    backend, error_response = _resolve_backend_or_error(snapshot)
+    if error_response is not None:
+        return error_response
+
+    page = build_page(
+        backend.open_stream(snapshot.location), offset=offset, limit=limit
+    )
+    return jsonify(page)
 
 
 @dataset_bp.route("/api/v1/admin/datasets/<dataset_id>/categories", methods=["GET"])

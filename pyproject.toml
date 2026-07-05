@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vbwd-plugin-dataset"
+version = "26.6.1"
+description = "VBWD backend plugin: dataset"
+requires-python = ">=3.11"
+license = { text = "BSL-1.1" }
+dependencies = []
+
+# Runtime lives inside the vbwd-backend host, which provides `vbwd.*` (core) and
+# any sibling plugins declared in PluginMetadata.dependencies. Those are NOT pinned
+# here so the wheel stays host-agnostic; install the host separately.
+
+[tool.setuptools]
+# The repo root IS the plugins/dataset/ directory; remap it so the wheel exposes
+# the `plugins.dataset` package that runtime imports (e.g. `from plugins.dataset...`).
+package-dir = { "plugins.dataset" = "." }
+packages = [
+    "plugins.dataset",
+    "plugins.dataset.dataset",
+    "plugins.dataset.dataset.handlers",
+    "plugins.dataset.dataset.models",
+    "plugins.dataset.dataset.repositories",
+    "plugins.dataset.dataset.services",
+    "plugins.dataset.dataset.services.data_exchange",
+    "plugins.dataset.dataset.services.storage",
+    "plugins.dataset.migrations",
+    "plugins.dataset.migrations.versions",
+]
+
+[tool.setuptools.package-data]
+# Ship everything a pip-installed plugin needs to be self-complete: config JSON,
+# Alembic migrations (the shared backend env.py resolves version_locations from
+# the installed package path), seed scripts, and bin/ helpers.
+"plugins.dataset" = [
+    "*.json",
+    "migrations/*.py",
+    "migrations/*.mako",
+    "migrations/*.ini",
+    "migrations/**/*.py",
+    "migrations/**/*.mako",
+    "populate_db.py",
+    "populate_*.py",
+    "demo_seed.py",
+    "bin/*",
+    "bin/**/*",
+]
