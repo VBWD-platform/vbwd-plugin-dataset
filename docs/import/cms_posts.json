@@ -1,0 +1,70 @@
+{
+  "vbwd_export": "cms_posts",
+  "version": 1,
+  "cms_posts": [
+    {
+      "canonical_url": null,
+      "content_blocks": [],
+      "content_html": null,
+      "content_json": {
+        "content": [],
+        "type": "doc"
+      },
+      "excerpt": null,
+      "featured_image_url": null,
+      "language": "en",
+      "layout_slug": "dataset-catalogue-layout",
+      "meta_description": null,
+      "meta_keywords": null,
+      "meta_title": "Data Store",
+      "og_description": null,
+      "og_image_url": null,
+      "og_title": null,
+      "page_assignments": [],
+      "parent_slug": null,
+      "robots": "index,follow",
+      "schema_json": null,
+      "seo_excluded": false,
+      "slug": "data-store",
+      "sort_order": 0,
+      "source_css": null,
+      "status": "published",
+      "style_slug": null,
+      "terms": [],
+      "title": "Data Store",
+      "type": "page"
+    },
+    {
+      "canonical_url": null,
+      "content_blocks": [],
+      "content_html": null,
+      "content_json": {
+        "content": [],
+        "type": "doc"
+      },
+      "excerpt": null,
+      "featured_image_url": null,
+      "language": "en",
+      "layout_slug": "dataset-detail-layout",
+      "meta_description": null,
+      "meta_keywords": null,
+      "meta_title": "Dataset Detail",
+      "og_description": null,
+      "og_image_url": null,
+      "og_title": null,
+      "page_assignments": [],
+      "parent_slug": null,
+      "robots": "noindex",
+      "schema_json": null,
+      "seo_excluded": false,
+      "slug": "dataset-detail",
+      "sort_order": 1,
+      "source_css": null,
+      "status": "published",
+      "style_slug": null,
+      "terms": [],
+      "title": "Dataset Detail",
+      "type": "page"
+    }
+  ]
+}

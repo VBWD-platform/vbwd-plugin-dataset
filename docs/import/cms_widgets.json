@@ -1,0 +1,31 @@
+{
+  "vbwd_export": "cms_widgets",
+  "version": 1,
+  "cms_widgets": [
+    {
+      "config": null,
+      "content_json": {
+        "component": "DatasetCatalogue",
+        "items_per_page": 12
+      },
+      "is_active": true,
+      "name": "Dataset Catalogue",
+      "slug": "dataset-catalogue",
+      "sort_order": 0,
+      "source_css": null,
+      "widget_type": "vue-component"
+    },
+    {
+      "config": null,
+      "content_json": {
+        "component": "DatasetDetail"
+      },
+      "is_active": true,
+      "name": "Dataset Detail",
+      "slug": "dataset-detail-widget",
+      "sort_order": 0,
+      "source_css": null,
+      "widget_type": "vue-component"
+    }
+  ]
+}

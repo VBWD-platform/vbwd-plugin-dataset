@@ -1,0 +1,107 @@
+{
+  "vbwd_export": "cms_layouts",
+  "version": 1,
+  "cms_layouts": [
+    {
+      "areas": [
+        {
+          "label": "Header",
+          "name": "header",
+          "type": "header"
+        },
+        {
+          "label": "",
+          "name": "breadcrumbs",
+          "type": "vue"
+        },
+        {
+          "label": "Catalogue",
+          "name": "dataset-catalogue",
+          "type": "vue"
+        },
+        {
+          "label": "Footer",
+          "name": "footer",
+          "type": "footer"
+        }
+      ],
+      "description": "",
+      "head_html": null,
+      "is_active": true,
+      "is_default": false,
+      "name": "Dataset Catalogue",
+      "slug": "dataset-catalogue-layout",
+      "sort_order": 10,
+      "widget_assignments": [
+        {
+          "area_name": "breadcrumbs",
+          "sort_order": 3,
+          "widget_slug": "breadcrumbs"
+        },
+        {
+          "area_name": "dataset-catalogue",
+          "sort_order": 0,
+          "widget_slug": "dataset-catalogue"
+        },
+        {
+          "area_name": "footer",
+          "sort_order": 2,
+          "widget_slug": "header-nav"
+        },
+        {
+          "area_name": "header",
+          "sort_order": 1,
+          "widget_slug": "header-nav"
+        }
+      ]
+    },
+    {
+      "areas": [
+        {
+          "label": "Header",
+          "name": "header",
+          "type": "header"
+        },
+        {
+          "label": "",
+          "name": "breadcrumbs",
+          "type": "vue"
+        },
+        {
+          "label": "Detail",
+          "name": "dataset-detail",
+          "type": "vue"
+        },
+        {
+          "label": "Footer",
+          "name": "footer",
+          "type": "footer"
+        }
+      ],
+      "description": "",
+      "head_html": null,
+      "is_active": true,
+      "is_default": false,
+      "name": "Dataset Detail",
+      "slug": "dataset-detail-layout",
+      "sort_order": 11,
+      "widget_assignments": [
+        {
+          "area_name": "dataset-detail",
+          "sort_order": 0,
+          "widget_slug": "dataset-detail-widget"
+        },
+        {
+          "area_name": "footer",
+          "sort_order": 2,
+          "widget_slug": "footer-nav"
+        },
+        {
+          "area_name": "header",
+          "sort_order": 1,
+          "widget_slug": "header-nav"
+        }
+      ]
+    }
+  ]
+}
