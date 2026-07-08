@@ -59,6 +59,7 @@ def _import_schema_models() -> None:
 
     import plugins.dataset.dataset.models.dataset  # noqa: F401
     import plugins.dataset.dataset.models.dataset_snapshot  # noqa: F401
+    import plugins.dataset.dataset.models.dataset_snapshot_file  # noqa: F401
     import plugins.dataset.dataset.models.dataset_term  # noqa: F401
     import plugins.dataset.dataset.models.dataset_plan  # noqa: F401
     import plugins.dataset.dataset.models.dataset_membership  # noqa: F401

@@ -31,6 +31,26 @@ class StoredSnapshot:
     ext: str
 
 
+# Fallback member filename when a payload sanitizes to nothing (all separators /
+# parent refs). A single home so both backends agree.
+DEFAULT_MEMBER_FILENAME = "file"
+
+
+def sanitize_member_filename(filename: str) -> str:
+    """Reduce ``filename`` to a safe, single-segment name for a member file.
+
+    Strips any directory components (so ``a/b/report.pdf`` -> ``report.pdf``) and
+    parent references (``..``), so a crafted payload can never escape the
+    per-issue folder. The core ``FilesystemManager`` confines the resolved path
+    too (defence in depth); this keeps the stored ``location`` clean regardless.
+    """
+    candidate = (filename or "").replace("\\", "/")
+    candidate = candidate.rsplit("/", 1)[-1]  # drop directory components
+    candidate = candidate.replace("..", "")  # no parent references
+    candidate = candidate.strip().strip(".")  # no leading/trailing dots or blanks
+    return candidate or DEFAULT_MEMBER_FILENAME
+
+
 class DatasetStorageError(Exception):
     """Raised when a storage backend cannot complete an operation."""
 
@@ -52,6 +72,24 @@ class IDatasetStorageBackend(ABC):
         data: bytes,
     ) -> StoredSnapshot:
         """Persist ``data`` for one snapshot and return its stored metadata."""
+
+    @abstractmethod
+    def put_member(
+        self,
+        category_slug: str,
+        dataset_slug: str,
+        taken_at: str,
+        filename: str,
+        data: bytes,
+    ) -> StoredSnapshot:
+        """Persist a companion file's ``data`` under an issue's per-issue folder.
+
+        Members live at ``datasets/<cat>/<ds>/<taken_at>/<safe-filename>`` — a
+        folder distinct from the primary's ``<taken_at>.<ext>`` sibling file.
+        ``filename`` is sanitized (see :func:`sanitize_member_filename`) so it can
+        never escape the folder. Returns the stored metadata (backend-relative
+        ``location``, size, checksum, ext) just like :meth:`put`.
+        """
 
     @abstractmethod
     def open(self, location: str) -> bytes:

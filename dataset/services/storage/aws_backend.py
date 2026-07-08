@@ -22,6 +22,7 @@ Design (binding constraints honoured):
 """
 import hashlib
 import logging
+import os
 from typing import Any, Dict, Iterator, Optional
 
 from plugins.dataset.dataset.models.dataset_snapshot import STORAGE_BACKEND_AWS
@@ -30,6 +31,7 @@ from plugins.dataset.dataset.services.storage.backend import (
     DatasetStorageError,
     IDatasetStorageBackend,
     StoredSnapshot,
+    sanitize_member_filename,
 )
 
 # Default key prefix under the bucket when config does not set one.
@@ -88,6 +90,35 @@ class AwsS3Backend(IDatasetStorageBackend):
             size_bytes=len(data),
             checksum=hashlib.sha256(data).hexdigest(),
             ext=ext,
+        )
+
+    def put_member(
+        self,
+        category_slug: str,
+        dataset_slug: str,
+        taken_at: str,
+        filename: str,
+        data: bytes,
+    ) -> StoredSnapshot:
+        safe_category = category_slug or "uncategorized"
+        safe_filename = sanitize_member_filename(filename)
+        parts = [
+            part
+            for part in (self._prefix, safe_category, dataset_slug, taken_at)
+            if part
+        ]
+        location = "/".join(parts) + f"/{safe_filename}"
+        try:
+            self._client.put_object(Bucket=self._bucket, Key=location, Body=data)
+        except Exception as put_error:  # noqa: BLE001 — surface as a port error
+            raise DatasetStorageError(
+                f"AWS S3 put_member failed for '{location}': {put_error}"
+            ) from put_error
+        return StoredSnapshot(
+            location=location,
+            size_bytes=len(data),
+            checksum=hashlib.sha256(data).hexdigest(),
+            ext=os.path.splitext(safe_filename)[1].lstrip(".").lower(),
         )
 
     def open(self, location: str) -> bytes:

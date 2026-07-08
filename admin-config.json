@@ -60,6 +60,26 @@
       ]
     },
     {
+      "id": "files",
+      "label": "Issue files",
+      "fields": [
+        {
+          "key": "max_file_size_bytes",
+          "label": "Max file size (bytes)",
+          "component": "input",
+          "inputType": "number",
+          "min": 0,
+          "description": "Largest companion file (PDF/chart/other) that may be attached to an issue. Default 52428800 (50 MiB)."
+        },
+        {
+          "key": "allowed_file_extensions",
+          "label": "Allowed file extensions",
+          "component": "textarea",
+          "description": "Extensions (one per line / JSON array, without the dot) a companion file may carry, e.g. csv, pdf, png, svg."
+        }
+      ]
+    },
+    {
       "id": "aws",
       "label": "AWS S3 backend (optional)",
       "fields": [

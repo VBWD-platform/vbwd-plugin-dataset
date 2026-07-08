@@ -19,5 +19,21 @@
     "pipeline": "",
     "aws": ""
   },
-  "webhook_timestamp_tolerance_seconds": 300
+  "webhook_timestamp_tolerance_seconds": 300,
+  "max_file_size_bytes": 52428800,
+  "allowed_file_extensions": [
+    "csv",
+    "tsv",
+    "json",
+    "xlsx",
+    "parquet",
+    "pdf",
+    "png",
+    "jpg",
+    "jpeg",
+    "svg",
+    "txt",
+    "md",
+    "zip"
+  ]
 }

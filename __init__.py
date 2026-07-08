@@ -58,6 +58,25 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     # How far (seconds) an inbound webhook timestamp may be from now before it is
     # rejected as stale/replayed (the replay guard window).
     "webhook_timestamp_tolerance_seconds": 300,
+    # Companion-file limits for issue bundles (S124). Ops-tunable, never
+    # hardcoded at a call site: the max member-file size (50 MiB default) and the
+    # allow-list of member extensions an attach may carry.
+    "max_file_size_bytes": 52428800,
+    "allowed_file_extensions": [
+        "csv",
+        "tsv",
+        "json",
+        "xlsx",
+        "parquet",
+        "pdf",
+        "png",
+        "jpg",
+        "jpeg",
+        "svg",
+        "txt",
+        "md",
+        "zip",
+    ],
 }
 
 # The entity type used for the generic tags / custom-fields framework and the
@@ -150,6 +169,50 @@ def build_dataset_entitlement_service():
     return DatasetEntitlementService(
         subscription_entitlements=_SubscriptionEntitlementsAdapter(),
         dataset_plan_repository=DatasetPlanRepository(db.session),
+    )
+
+
+def build_snapshot_file_service():
+    """Composition root for ``SnapshotFileService`` (fresh ``db.session``).
+
+    Mirrors the ``build_dataset_*`` factories: wires the member-file repo, the
+    snapshot repo (to read the primary for the uniform list / zip), the local
+    storage backend (writes use local, the MVP default) and the core EventBus.
+    The size/extension limits come from the live plugin config (ops-tunable,
+    never hardcoded).
+    """
+    from flask import current_app
+
+    from vbwd.events.bus import event_bus
+    from vbwd.extensions import db
+
+    from plugins.dataset.dataset.repositories.dataset_snapshot_file_repository import (
+        DatasetSnapshotFileRepository,
+    )
+    from plugins.dataset.dataset.repositories.dataset_snapshot_repository import (
+        DatasetSnapshotRepository,
+    )
+    from plugins.dataset.dataset.services.snapshot_file_service import (
+        DEFAULT_ALLOWED_FILE_EXTENSIONS,
+        DEFAULT_MAX_FILE_SIZE_BYTES,
+        SnapshotFileService,
+    )
+    from plugins.dataset.dataset.services.storage.local_backend import (
+        LocalArchiveBackend,
+    )
+
+    config = _current_plugin_config()
+    return SnapshotFileService(
+        snapshot_file_repository=DatasetSnapshotFileRepository(db.session),
+        snapshot_repository=DatasetSnapshotRepository(db.session),
+        storage_backend=LocalArchiveBackend(current_app.container.filesystem_manager()),
+        event_bus=event_bus,
+        max_file_size_bytes=config.get(
+            "max_file_size_bytes", DEFAULT_MAX_FILE_SIZE_BYTES
+        ),
+        allowed_file_extensions=config.get(
+            "allowed_file_extensions", DEFAULT_ALLOWED_FILE_EXTENSIONS
+        ),
     )
 
 

@@ -41,6 +41,7 @@ from vbwd.webhooks.signing import (
 )
 
 from plugins.dataset.dataset.models.dataset_snapshot import INGESTED_VIA_WEBHOOK
+from plugins.dataset.dataset.models.dataset_snapshot_file import FILE_ROLE_OTHER
 from plugins.dataset.dataset.repositories.dataset_plan_repository import (
     DatasetPlanRepository,
 )
@@ -58,6 +59,11 @@ from plugins.dataset.dataset.services.dataset_service import (
     DEFAULT_CATEGORY_SLUG,
 )
 from plugins.dataset.dataset.services.dataset_preview import build_page, build_preview
+from plugins.dataset.dataset.services.snapshot_file_service import (
+    DatasetSnapshotFileError,
+    DatasetSnapshotFileNotFoundError,
+    PRIMARY_FILE_ID,
+)
 from plugins.dataset.dataset.services.dataset_taxonomy_service import (
     DatasetTaxonomyService,
     InvalidCategoryTermError,
@@ -141,6 +147,17 @@ def _dataset_service() -> DatasetService:
         event_bus=event_bus,
         dataset_plan_repository=DatasetPlanRepository(db.session),
     )
+
+
+def _snapshot_file_service():
+    """Composition root for the issue companion-file service (S124).
+
+    Delegates to the plugin factory (fresh ``db.session``, local write backend,
+    config-driven size/extension limits) so member-file wiring has one home.
+    """
+    from plugins.dataset import build_snapshot_file_service
+
+    return build_snapshot_file_service()
 
 
 def _backend_resolver() -> DatasetStorageBackendResolver:
@@ -400,6 +417,80 @@ def admin_download_snapshot(dataset_id, snapshot_id):
     )
 
 
+# ======================================================================
+# Issue companion files (S124) — admin attach / list / delete
+# ======================================================================
+#
+# The static ``/files`` list rule is declared BEFORE the ``/files/<file_id>``
+# rule so no file id can shadow it (asserted by the route-ordering test).
+
+
+@dataset_bp.route(
+    "/api/v1/admin/datasets/<dataset_id>/snapshots/<snapshot_id>/files",
+    methods=["GET"],
+)
+@require_auth
+@require_admin
+@require_permission(PERMISSION_VIEW)
+def admin_list_snapshot_files(dataset_id, snapshot_id):
+    """List an issue's files (admin view): the uniform primary-first projection."""
+    service = _dataset_service()
+    try:
+        dataset = service.get_dataset(dataset_id)
+        snapshot = service.get_snapshot(dataset_id, snapshot_id)
+    except DatasetNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    files = _snapshot_file_service().list_issue_files(dataset, snapshot)
+    return jsonify({"files": files, "total": len(files)})
+
+
+@dataset_bp.route(
+    "/api/v1/admin/datasets/<dataset_id>/snapshots/<snapshot_id>/files",
+    methods=["POST"],
+)
+@require_auth
+@require_admin
+@require_permission(PERMISSION_MANAGE)
+def admin_add_snapshot_file(dataset_id, snapshot_id):
+    """Attach one companion file (PDF / chart / other) to an issue → 201 dict."""
+    data, filename, role = _read_member_payload()
+    if data is None:
+        return jsonify({"error": "No file provided"}), 400
+
+    service = _snapshot_file_service()
+    try:
+        snapshot_file = service.add_file(dataset_id, snapshot_id, filename, role, data)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+    except DatasetSnapshotFileError as error:
+        return jsonify({"error": str(error) or "Invalid file"}), 400
+    db.session.commit()
+    return jsonify(snapshot_file.to_dict()), 201
+
+
+@dataset_bp.route(
+    "/api/v1/admin/datasets/<dataset_id>/snapshots/<snapshot_id>/files/<file_id>",
+    methods=["DELETE"],
+)
+@require_auth
+@require_admin
+@require_permission(PERMISSION_MANAGE)
+def admin_delete_snapshot_file(dataset_id, snapshot_id, file_id):
+    """Delete one companion file from an issue (bytes then row)."""
+    service = _snapshot_file_service()
+    try:
+        service.delete_file(dataset_id, snapshot_id, file_id)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+    except DatasetSnapshotFileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    db.session.commit()
+    return jsonify({"deleted": True})
+
+
 @dataset_bp.route("/api/v1/admin/datasets/<dataset_id>/preview", methods=["GET"])
 @require_auth
 @require_admin
@@ -601,6 +692,22 @@ def _read_snapshot_payload():
     taken_at = body.get("taken_at") or None
     category_slug = body.get("category") or DEFAULT_CATEGORY_SLUG
     return raw, ext, taken_at, category_slug
+
+
+def _read_member_payload():
+    """Extract ``(data, filename, role)`` for a companion-file attach (S124).
+
+    A companion file is always a multipart ``file`` upload plus a ``role`` form
+    field (and an optional ``filename`` override). Returns ``data=None`` when no
+    file was supplied so the route answers 400.
+    """
+    uploaded = request.files.get("file")
+    if uploaded is None:
+        return None, None, None
+    data = uploaded.read()
+    role = request.form.get("role") or FILE_ROLE_OTHER
+    filename = request.form.get("filename") or uploaded.filename or "file"
+    return data, filename, role
 
 
 # ======================================================================
@@ -1014,6 +1121,104 @@ def download_dataset_snapshot(slug, snapshot_id):
     )
 
 
+# ======================================================================
+# Issue companion files (S124) — entitled list / download / archive
+# ======================================================================
+#
+# Dual-auth (session JWT or scoped API key) + entitlement-gated, NOT metered
+# (mirrors ``/snapshots/<id>/download``). The static ``/files`` list rule is
+# declared BEFORE the ``/files/<file_id>/download`` rule so no file id can
+# shadow it (asserted by the route-ordering test).
+
+
+@dataset_bp.route(
+    "/api/v1/dataset/<slug>/snapshots/<snapshot_id>/files", methods=["GET"]
+)
+@_require_session_or_api_key(scope=DATASET_READ_SCOPE)
+def list_snapshot_files(slug, snapshot_id):
+    """The uniform issue file list with a per-entry ``download_url``."""
+    service = _dataset_service()
+    dataset = _resolve_dataset_or_none(service, slug)
+    if dataset is None:
+        return jsonify({"error": "Not found"}), 404
+    if not _user_is_entitled(g.user_id, dataset):
+        return jsonify({"error": "Not entitled to this dataset"}), 403
+
+    try:
+        snapshot = service.get_snapshot(str(dataset.id), snapshot_id)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    files = _snapshot_file_service().list_issue_files(dataset, snapshot)
+    for entry in files:
+        entry["download_url"] = (
+            f"/api/v1/dataset/{slug}/snapshots/{snapshot_id}/files/"
+            f"{entry['id']}/download"
+        )
+    return jsonify({"files": files, "total": len(files)})
+
+
+@dataset_bp.route(
+    "/api/v1/dataset/<slug>/snapshots/<snapshot_id>/files/<file_id>/download",
+    methods=["GET"],
+)
+@_require_session_or_api_key(scope=DATASET_READ_SCOPE)
+def download_snapshot_file(slug, snapshot_id, file_id):
+    """Download one file of an issue (``file_id == "primary"`` → the data file)."""
+    service = _dataset_service()
+    dataset = _resolve_dataset_or_none(service, slug)
+    if dataset is None:
+        return jsonify({"error": "Not found"}), 404
+    if not _user_is_entitled(g.user_id, dataset):
+        return jsonify({"error": "Not entitled to this dataset"}), 403
+
+    try:
+        snapshot = service.get_snapshot(str(dataset.id), snapshot_id)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    backend, error_response = _resolve_backend_or_error(snapshot)
+    if error_response is not None:
+        return error_response
+
+    if file_id == PRIMARY_FILE_ID:
+        return _stream_snapshot(
+            snapshot, backend, as_attachment=True, download_slug=dataset.slug
+        )
+
+    try:
+        member = _snapshot_file_service().get_file(
+            str(dataset.id), snapshot_id, file_id
+        )
+    except DatasetSnapshotFileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    return _stream_member(member, backend)
+
+
+@dataset_bp.route(
+    "/api/v1/dataset/<slug>/snapshots/<snapshot_id>/archive", methods=["GET"]
+)
+@_require_session_or_api_key(scope=DATASET_READ_SCOPE)
+def download_snapshot_archive(slug, snapshot_id):
+    """Download the whole issue (primary + members) as a zip attachment."""
+    service = _dataset_service()
+    dataset = _resolve_dataset_or_none(service, slug)
+    if dataset is None:
+        return jsonify({"error": "Not found"}), 404
+    if not _user_is_entitled(g.user_id, dataset):
+        return jsonify({"error": "Not entitled to this dataset"}), 403
+
+    try:
+        snapshot = service.get_snapshot(str(dataset.id), snapshot_id)
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    payload, filename = _snapshot_file_service().build_issue_archive(dataset, snapshot)
+    response = Response(payload, mimetype="application/zip")
+    response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
 @dataset_bp.route("/api/v1/dataset/<slug>/preview", methods=["GET"])
 @require_auth
 def preview_dataset(slug):
@@ -1206,6 +1411,20 @@ def _stream_snapshot(
     if as_attachment:
         filename = f"{download_slug or 'dataset'}-{snapshot.taken_at}.{snapshot.ext}"
         response.headers["Content-Disposition"] = f'attachment; filename="{filename}"'
+    return response
+
+
+def _stream_member(member, backend):
+    """Stream one companion file's bytes as an attachment (S124).
+
+    Content-Type comes from the file's stored ``content_type`` (falling back to
+    a generic binary type); the download keeps the original filename.
+    """
+    mimetype = member.content_type or "application/octet-stream"
+    response = Response(backend.open_stream(member.location), mimetype=mimetype)
+    response.headers[
+        "Content-Disposition"
+    ] = f'attachment; filename="{member.filename}"'
     return response
 
 

@@ -22,6 +22,7 @@ from plugins.dataset.dataset.services.storage.backend import (
     DEFAULT_STREAM_CHUNK_SIZE,
     IDatasetStorageBackend,
     StoredSnapshot,
+    sanitize_member_filename,
 )
 from plugins.dataset.dataset.models.dataset_snapshot import STORAGE_BACKEND_LOCAL
 
@@ -73,6 +74,28 @@ class LocalArchiveBackend(IDatasetStorageBackend):
             size_bytes=len(data),
             checksum=hashlib.sha256(data).hexdigest(),
             ext=ext,
+        )
+
+    def put_member(
+        self,
+        category_slug: str,
+        dataset_slug: str,
+        taken_at: str,
+        filename: str,
+        data: bytes,
+    ) -> StoredSnapshot:
+        safe_category = category_slug or "uncategorized"
+        safe_filename = sanitize_member_filename(filename)
+        location = (
+            f"{ARCHIVE_PREFIX}/{safe_category}/{dataset_slug}/"
+            f"{taken_at}/{safe_filename}"
+        )
+        self._filesystem_manager.write_bytes(self._namespace, location, data)
+        return StoredSnapshot(
+            location=location,
+            size_bytes=len(data),
+            checksum=hashlib.sha256(data).hexdigest(),
+            ext=os.path.splitext(safe_filename)[1].lstrip(".").lower(),
         )
 
     def open(self, location: str) -> bytes:
