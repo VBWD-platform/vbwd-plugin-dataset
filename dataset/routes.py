@@ -491,6 +491,50 @@ def admin_delete_snapshot_file(dataset_id, snapshot_id, file_id):
     return jsonify({"deleted": True})
 
 
+@dataset_bp.route(
+    "/api/v1/admin/datasets/<dataset_id>/snapshots/<snapshot_id>/files/<file_id>"
+    "/download",
+    methods=["GET"],
+)
+@require_auth
+@require_admin
+@require_permission(PERMISSION_VIEW)
+def admin_download_snapshot_file(dataset_id, snapshot_id, file_id):
+    """Admin download of one issue file — NO entitlement gate (S124 follow-up).
+
+    An admin manages the catalogue but is not necessarily entitled to the
+    dataset, so this mirrors the entitled :func:`download_snapshot_file` with the
+    entitlement check removed: ``file_id == "primary"`` streams the snapshot's
+    primary data file; any other id streams the resolved member with its own
+    content type and original filename. Reuses the shared stream/backend helpers
+    (DRY). Unknown dataset / snapshot / file → 404; an AWS snapshot while AWS is
+    off → the shared graceful 503.
+    """
+    service = _dataset_service()
+    try:
+        dataset = service.get_dataset(dataset_id)
+        snapshot = service.get_snapshot(dataset_id, snapshot_id)
+    except DatasetNotFoundError:
+        return jsonify({"error": "Not found"}), 404
+    except DatasetSnapshotNotFoundError:
+        return jsonify({"error": "Snapshot not found"}), 404
+
+    backend, error_response = _resolve_backend_or_error(snapshot)
+    if error_response is not None:
+        return error_response
+
+    if file_id == PRIMARY_FILE_ID:
+        return _stream_snapshot(
+            snapshot, backend, as_attachment=True, download_slug=dataset.slug
+        )
+
+    try:
+        member = _snapshot_file_service().get_file(dataset_id, snapshot_id, file_id)
+    except DatasetSnapshotFileNotFoundError:
+        return jsonify({"error": "File not found"}), 404
+    return _stream_member(member, backend)
+
+
 @dataset_bp.route("/api/v1/admin/datasets/<dataset_id>/preview", methods=["GET"])
 @require_auth
 @require_admin
