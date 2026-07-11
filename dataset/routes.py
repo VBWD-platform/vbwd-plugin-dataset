@@ -59,6 +59,10 @@ from plugins.dataset.dataset.services.dataset_service import (
     DEFAULT_CATEGORY_SLUG,
 )
 from plugins.dataset.dataset.services.dataset_preview import build_page, build_preview
+from plugins.dataset.dataset.services.entity_page_bridge import (
+    dataset_page_seo,
+    delete_dataset_entity_page,
+)
 from plugins.dataset.dataset.services.snapshot_file_service import (
     DatasetSnapshotFileError,
     DatasetSnapshotFileNotFoundError,
@@ -305,6 +309,9 @@ def admin_delete_dataset(dataset_id):
         service.delete_dataset(dataset_id)
     except DatasetNotFoundError:
         return jsonify({"error": "Not found"}), 404
+    # S128 — clean up the dataset's attached cms entity page + link (guarded:
+    # a cms-absent host is a no-op). Same transaction as the dataset delete.
+    delete_dataset_entity_page(dataset_id)
     db.session.commit()
     return jsonify({"deleted": True})
 
@@ -842,7 +849,13 @@ def public_get_dataset(slug):
     dataset = _resolve_dataset_or_none(service, slug)
     if dataset is None:
         return jsonify({"error": "Not found"}), 404
-    return jsonify(dataset.to_dict())
+    payload = dataset.to_dict()
+    # S128 — surface the attached cms entity page's SEO so the public dataset
+    # page emits correct meta. Omitted when there is no page / cms is absent.
+    page_seo = dataset_page_seo(dataset.id)
+    if page_seo is not None:
+        payload["page_seo"] = page_seo
+    return jsonify(payload)
 
 
 # ======================================================================
@@ -1037,6 +1050,8 @@ def vendor_delete_dataset(dataset_id):
         return error
 
     _dataset_service().delete_dataset(dataset.id)
+    # S128 — mirror the admin delete: drop the attached cms entity page (guarded).
+    delete_dataset_entity_page(dataset.id)
     db.session.commit()
     return jsonify({"success": True}), 200
 

@@ -396,6 +396,16 @@ class DatasetPlugin(BasePlugin):
                 term_type_import_error,
             )
 
+        # S128 — contribute the ``dataset`` content-owner type so the reusable
+        # cms entity-page routes accept a page attached to a dataset. Self-
+        # guarded (cms optional): a missing cms import logs + no-ops, never
+        # aborts enable (Liskov).
+        from plugins.dataset.dataset.services.entity_page_bridge import (
+            register_dataset_owner_type,
+        )
+
+        register_dataset_owner_type()
+
         self._register_data_exchangers()
         self._register_marketplace_listings()
 

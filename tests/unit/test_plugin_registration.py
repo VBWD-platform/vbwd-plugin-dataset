@@ -6,6 +6,7 @@ from vbwd.services.entity_type_registry import (
     clear_entity_types,
     is_registered,
 )
+from plugins.cms.src.services import entity_page_owner_registry
 
 
 def test_plugin_is_a_base_plugin():
@@ -58,6 +59,19 @@ def test_on_enable_registers_entity_type_and_is_idempotent():
     # Re-enabling must not raise and must leave the registration intact.
     plugin.on_enable()
     assert is_registered("dataset")
+
+
+def test_on_enable_registers_the_entity_page_owner_type():
+    # S128 — dataset is an adopter of the cms entity-page seam; on_enable must
+    # contribute the ``dataset`` content-owner type so the generic entity-page
+    # routes accept it. Guarded so a cms-absent host still enables.
+    clear_entity_types()
+    entity_page_owner_registry.clear_content_owner_types()
+    plugin = DatasetPlugin()
+    plugin.initialize({})
+
+    plugin.on_enable()
+    assert entity_page_owner_registry.is_registered("dataset")
 
 
 def test_on_disable_is_a_no_op_reversal():
