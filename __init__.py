@@ -98,6 +98,14 @@ SUBSCRIPTION_RENEWED = "subscription.renewed"
 INVOICE_PAID = "invoice.paid"
 
 
+def _clear_dataset_demo(session) -> None:
+    """Demo-reset clearer: purge ``dataset_tax`` links (FK → core ``vbwd_tax``)
+    so ``DemoSeeder`` can clear the tax catalog FK-safely. Idempotent."""
+    from sqlalchemy import text
+
+    session.execute(text("DELETE FROM dataset_tax"))
+
+
 class _SubscriptionEntitlementsAdapter:
     """Satisfies the dataset-owned ``ISubscriptionEntitlements`` port (DIP).
 
@@ -405,6 +413,14 @@ class DatasetPlugin(BasePlugin):
         )
 
         register_dataset_owner_type()
+
+        # Contribute a demo-reset clearer: the ``dataset_tax`` link table FKs the
+        # core ``vbwd_tax`` table, which ``DemoSeeder`` clears during a reset.
+        # Purge those links first so the reset stays FK-safe. The seam keeps the
+        # table name in the plugin (core names no dataset table).
+        from vbwd.services.demo_data_registry import register_catalog_clearer
+
+        register_catalog_clearer(_clear_dataset_demo)
 
         self._register_data_exchangers()
         self._register_marketplace_listings()
